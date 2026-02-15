@@ -1,0 +1,20 @@
+{
+  "name": "mysql-connector-gtid",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "{{ lookup('env', 'MAC_IP') }}",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "{{ lookup('env', 'MYSQL_PW') }}",
+    "database.server.id": "910002",
+    "topic.prefix": "mysql9_full",
+    "database.include.list": "school",
+    "table.include.list": "school.students",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
+    "schema.history.internal.kafka.topic": "mysql9_full.schema_changes",
+    "snapshot.mode": "initial",
+    "gtid.source.filter.dml.events": "true",
+    "include.schema.changes": "true"
+  }
+}

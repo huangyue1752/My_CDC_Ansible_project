@@ -1,0 +1,64 @@
+---
+- name: Setup VM and Deploy CDC
+  hosts: my_vm
+  become: yes
+  
+  tasks:
+    # --- PHASE 1: INSTALL DOCKER ---
+    - name: Install prerequisite packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+        state: latest
+        update_cache: yes
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Install Docker Engine
+      apt:
+        name: docker-ce
+        state: latest
+
+    # --- PHASE 2: DEPLOY PROJECT ---
+    - name: Ensure project directory exists
+      file:
+        path: "/home/datastream/my_cdc_project"
+        state: directory
+        owner: datastream
+        group: datastream
+
+    - name: 1. Copy Docker Compose (Static file)
+      copy:
+        src: "./debezium-mysql-source-connector-demo.yml"
+        dest: "/home/datastream/my_cdc_project/debezium-mysql-source-connector-demo.yml"
+
+    - name: 2. Process and Copy JSON (Dynamic file with secrets)
+      template:
+        src: "./debezium-connector-config.json.j2"
+        dest: "/home/datastream/my_cdc_project/debezium-connector-config.json"
+
+    - name: Start the CDC Stack
+      shell: "docker compose -f debezium-mysql-source-connector-demo.yml up -d"
+      args:
+        chdir: "/home/datastream/my_cdc_project"
+
+    - name: Wait for Debezium to wake up (Safety Step)
+      pause:
+        seconds: 30
+
+    - name: Register the Connector (Line 2)
+      shell: "curl -X POST -H 'Content-Type:application/json' --data @debezium-connector-config.json http://localhost:8083/connectors"
+      args:
+        chdir: "/home/datastream/my_cdc_project"
