@@ -108,3 +108,6 @@ git add .
 nano .gitignore # if needed
 git commit -m "Initial commit: Ansible automation for CDC with secure templates"
 git push origin main
+
+# create a new branch
+git checkout -b dev
