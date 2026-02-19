@@ -111,3 +111,6 @@ git push origin main
 
 # create a new branch
 git checkout -b dev
+
+# check which branch 
+ git branch

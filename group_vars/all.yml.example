@@ -1,0 +1,5 @@
+azure_tenant_id: "<your-tenant-id>"
+azure_client_id: "<your-client-id>"
+key_vault_url: "https://<your-kv>.vault.azure.net/"
+eventhub_name: "mysql-cdc-dev-eh"
+kv_secret_name: "ehns-conn-str"

@@ -3,10 +3,10 @@
   "config": {
     "connector.class": "io.debezium.connector.mysql.MySqlConnector",
     "tasks.max": "1",
-    "database.hostname": "{{ lookup('env', 'MAC_IP') }}",
+    "database.hostname": "{{ mac_ip }}",
     "database.port": "3306",
     "database.user": "debezium",
-    "database.password": "{{ lookup('env', 'MYSQL_PW') }}",
+    "database.password": "{{ mysql_pw }}",
     "database.server.id": "910002",
     "topic.prefix": "mysql9_full",
     "database.include.list": "school",

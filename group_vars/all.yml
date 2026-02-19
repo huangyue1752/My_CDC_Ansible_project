@@ -1,0 +1,8 @@
+mac_ip: "192.168.68.102"
+vm_ip: "192.168.65.5"
+key_vault_url: "https://kv-tyler-2026.vault.azure.net/"
+kv_secret_name: "ehns-conn-str"
+eventhub_name: "mysql-cdc-dev-eh"
+
+azure_tenant_id: "fb12b490-1ec9-403e-a67b-c94c3d50ea31"
+azure_client_id: "80edf62b-9791-4606-a598-b80f32b162ee"
