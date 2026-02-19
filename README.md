@@ -119,3 +119,11 @@ git checkout -b dev
  git rm --cached group_vars/all.yml
  git ls-files | grep all.yml
  (you need to make you the ignroed file cannot be seen)
+
+ # check what's been committed
+ git ls-files | grep .gitignore
+ git show HEAD:.gitignore
+
+# when your remote dev branch has commits you don’t have locally, so Git won’t let you push (to avoid overwriting).
+git pull --rebase origin dev
+git push origin dev
