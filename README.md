@@ -114,3 +114,8 @@ git checkout -b dev
 
 # check which branch 
  git branch
+
+ # ! WHEN YOU ignoregit you need to run blow code and verify
+ git rm --cached group_vars/all.yml
+ git ls-files | grep all.yml
+ (you need to make you the ignroed file cannot be seen)
