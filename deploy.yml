@@ -2,6 +2,12 @@
 - name: Setup VM and Deploy CDC
   hosts: my_vm
   become: yes
+
+
+  vars_files:
+    - group_vars/all.yml
+    - vault/secrets.yml
+
   
   tasks:
     # --- PHASE 1: INSTALL DOCKER ---
@@ -30,6 +36,12 @@
       apt:
         name: docker-ce
         state: latest
+    
+    - name: Install Docker Compose plugin (required for 'docker compose')
+      apt:
+        name: docker-compose-plugin
+        state: latest
+        update_cache: yes
 
     # --- PHASE 2: DEPLOY PROJECT ---
     - name: Ensure project directory exists
@@ -54,11 +66,167 @@
       args:
         chdir: "/home/datastream/my_cdc_project"
 
-    - name: Wait for Debezium to wake up (Safety Step)
-      pause:
-        seconds: 30
+    # ✅ 不要 pause 固定 30s，改成等 8083 真正可用
+    - name: Wait for Kafka Connect REST API to be ready
+      uri:
+        url: "http://localhost:8083/connectors"
+        method: GET
+        status_code: 200
+      register: connect_ready
+      retries: 60
+      delay: 2
+      until: connect_ready.status == 200
 
-    - name: Register the Connector (Line 2)
-      shell: "curl -X POST -H 'Content-Type:application/json' --data @debezium-connector-config.json http://localhost:8083/connectors"
+    # ✅ 读取 connector name（从你的 json 文件里取 name）
+    - name: Read connector config json
+      slurp:
+        src: "/home/datastream/my_cdc_project/debezium-connector-config.json"
+      register: connector_cfg_raw
+
+    - name: Parse connector config json
+      set_fact:
+        connector_cfg: "{{ connector_cfg_raw.content | b64decode | from_json }}"
+        connector_name: "{{ (connector_cfg_raw.content | b64decode | from_json).name }}"
+
+    # ✅ 检查 connector 是否存在
+    - name: Check if connector already exists
+      uri:
+        url: "http://localhost:8083/connectors/{{ connector_name }}"
+        method: GET
+        status_code: [200, 404]
+      register: connector_exists
+
+    # ✅ 不存在就创建（POST）
+    - name: Create connector if missing
+      uri:
+        url: "http://localhost:8083/connectors"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body: "{{ connector_cfg }}"
+        body_format: json
+        status_code: [201, 409]
+      when: connector_exists.status == 404
+
+    # ✅ 已存在就更新配置（PUT）——这是你第二次部署应该走的路
+    - name: Update connector config if exists
+      uri:
+        url: "http://localhost:8083/connectors/{{ connector_name }}/config"
+        method: PUT
+        headers:
+          Content-Type: "application/json"
+        body: "{{ connector_cfg.config }}"
+        body_format: json
+        status_code: 200
+      when: connector_exists.status == 200
+
+    # （可选）更新后重启任务，避免有些配置变更不生效
+    - name: Restart connector tasks (optional)
+      uri:
+        url: "http://localhost:8083/connectors/{{ connector_name }}/restart?includeTasks=true&onlyFailed=false"
+        method: POST
+        status_code: [202, 204]
+      when: connector_exists.status == 200
+
+    # --- PHASE 3: DEPLOY BRIDGE (Kafka -> Event Hubs) ---
+
+
+
+    - name: Install Python + venv + build deps
+      apt:
+        pkg:
+          - python3
+          - python3-venv
+          - python3-pip
+          - build-essential
+          - librdkafka-dev
+        state: latest
+        update_cache: yes
+
+    - name: Create bridge directory
+      file:
+        path: "/opt/cdc_bridge"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copy bridge script
+      copy:
+        src: "./bridge_kafka_to_eventhub.py"
+        dest: "/opt/cdc_bridge/bridge_kafka_to_eventhub.py"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create Python virtualenv (idempotent)
+      command: "python3 -m venv /opt/cdc_bridge/venv"
       args:
-        chdir: "/home/datastream/my_cdc_project"
+        creates: "/opt/cdc_bridge/venv/bin/activate"
+
+    - name: Install bridge python dependencies
+      pip:
+        virtualenv: "/opt/cdc_bridge/venv"
+        name:
+          - confluent-kafka
+          - azure-eventhub
+          - azure-identity
+          - azure-keyvault-secrets
+
+    - name: Create /etc/cdc-bridge.env (runtime env, root-only)
+      copy:
+        dest: "/etc/cdc-bridge.env"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          # Azure SP (non-secret in all.yml; secret in vault)
+          AZURE_TENANT_ID={{ azure_tenant_id }}
+          AZURE_CLIENT_ID={{ azure_client_id }}
+          AZURE_CLIENT_SECRET={{ azure_client_secret }}
+
+          # Key Vault + Event Hub (non-secret)
+          KEY_VAULT_URL={{ key_vault_url }}
+          KV_SECRET_NAME={{ kv_secret_name }}
+          EVENTHUB_NAME={{ eventhub_name }}
+
+          # Kafka source config (you can move these to all.yml later)
+          KAFKA_BOOTSTRAP=192.168.65.5:29092
+          KAFKA_TOPIC=mysql9_full.school.students
+          KAFKA_GROUP=bridge-to-eventhub
+          AUTO_OFFSET_RESET=earliest
+      no_log: true   # prevents secrets showing in Ansible output
+
+    - name: Install systemd service for bridge
+      copy:
+        dest: "/etc/systemd/system/cdc-bridge.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=CDC Bridge Kafka -> Event Hubs
+          After=network-online.target docker.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/cdc-bridge.env
+          WorkingDirectory=/opt/cdc_bridge
+          ExecStart=/opt/cdc_bridge/venv/bin/python /opt/cdc_bridge/bridge_kafka_to_eventhub.py
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Enable and start bridge service
+      systemd:
+        name: cdc-bridge
+        enabled: true
+        state: started
+
