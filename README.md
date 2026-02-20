@@ -73,6 +73,14 @@ curl -X DELETE http://localhost:8083/connectors/mysql-connector-v4
 # codes you need to debug incase it does not work
 "docker logs debezium_demo --tail 100"
 
+# check if connection to eventhub is successful(run in in vm)
+sudo systemctl status cdc-bridge
+# check if evenyhub consumer is receiving message
+docker exec -it kafka_demo bash -lc \
+'kafka-consumer-groups --bootstrap-server kafka:9092 --describe --group bridge-to-eventhub'
+
+
+
 
 2.Ansible deployment
 # First you need to install VM in your Macbook
@@ -97,10 +105,83 @@ export VM_IP="your_vm_ip"
 
 # hosts.yml
 # Execute this from your Mac terminal:
-"ansible-playbook -i hosts.yml deploy.yml --ask-pass --ask-become-pass"
+"ansible-playbook -i hosts.yml deploy.yml --ask-pass --ask-become-pass --ask-vault-pass
+s"
 
 # Final Verification on the VM
 cat /home/datastream/my_cdc_project/debezium-connector-config.json
+
+
+# question to clear after adding the bridge to connect kafka to event hub
+1️⃣ Is kafka-consumer-groups the same as a topic?
+A topic is where messages are stored.
+A consumer group is who reads from the topic.
+Example:bridge-to-eventhub
+
+in debezium-mysql-source-connector-demo.yml
+ports:
+  - "29092:29092"
+  That means:
+Left side = host port
+Right side = container port
+So:Host:29092 → Container:29092
+If that mapping does not exist,
+your VM cannot talk to Kafka.
+
+🔹 9092 = INTERNAL Docker Network
+Used when:
+Container talks to container
+Kafka container talks to Debezium
+You exec inside container
+
+🔹 29092 = EXTERNAL Host Port( because bridge_kafka_to_eventhub.py was created in the VM not in the container, so its the communication between vm(py file) and container(kafka))
+Used when:
+VM host talks to container
+Your systemd bridge runs outside Docker
+Anything outside container connects
+
+Docker Network
+------------------------------------------------
+|                                              |
+|  Debezium ----> kafka:9092 <---- zookeeper  |
+|                                              |
+------------------------------------------------
+               ↑
+               |
+VM host connects via 192.168.65.5:29092
+               |
+         systemd bridge
+
+
+🔵 1️⃣ KAFKA_LISTENERS
+KAFKA_LISTENERS:
+  INTERNAL://0.0.0.0:9092,
+  EXTERNAL://0.0.0.0:29092
+This means:
+"Kafka, open these ports and listen for connections."
+Think of it like:
+Opening doors on a building.
+What does 0.0.0.0 mean?
+It means:
+Listen on ALL network interfaces.
+So Kafka is saying:
+I will accept connections on port 9092
+I will accept connections on port 29092
+But this does NOT tell clients how to reach Kafka.
+It only tells Kafka what ports to open
+
+🟢 2️⃣ KAFKA_ADVERTISED_LISTENERS
+KAFKA_ADVERTISED_LISTENERS:
+  INTERNAL://kafka:9092,
+  EXTERNAL://192.168.65.5:29092
+
+This means:
+"When clients ask for cluster metadata, tell them to use THESE addresses."
+This is not about opening ports.
+This is about what Kafka tells clients to use.
+
+
+
 
 # how to git
 git init
