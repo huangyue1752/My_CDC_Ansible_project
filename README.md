@@ -208,3 +208,19 @@ git checkout -b dev
 # when your remote dev branch has commits you don’t have locally, so Git won’t let you push (to avoid overwriting).
 git pull --rebase origin dev
 git push origin dev
+
+✅ Option 1 — Completely Reset dev to Match main (Most Common)
+Step 1 — Make sure main is updated
+git checkout main
+git pull origin main
+Step 2 — Go back to dev
+git checkout dev
+git reset --hard main
+
+how do I check the latest version of main
+✅ 1️⃣ Check Your Local main Version
+git checkout main
+git log -1
+✅ 2️⃣ Check Remote main (Very Important)
+git fetch origin
+git log origin/main -1
